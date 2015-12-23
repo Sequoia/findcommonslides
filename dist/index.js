@@ -25,17 +25,54 @@ getFiles(base, options).map(function (file) {
 })
 //.then(sortByFilenameCount) //don't need to sort yet if I'm gonna group
 //.map(R.prop('filenames'))
-.then(groupSlides).map(R.prop('slides'))
+.then(groupSlides).then(clumpSlides).map(dropClumpsSmallerThan(2)).filter(function (file) {
+  return file.clumps.length > 0;
+}) //drop files with no clumps
+//.map(R.prop('clumps')) .then(slides => slides.slice(0,3)) .map(l) //examine some slides
+.all(writeModuleFiles)
 //.then(slides => fs.writeFileAsync('/Users/sequoia/slides.json', JSON.stringify(slides), 'utf8'))
-.then(l).catch(e);
+//.then(l)
+.catch(e);
 
-//OPTION 1: build groups by deck: compile contiguous lists of slides per deck
-//OPTION 2: foreach slide, check index in each deck & compare to next slide
-//          in each deck, if they continue matching, build these into lists
-//          ^ This option seems very complex and prone to error
+function writeModuleFiles(file) {
+  var basepath = '/Users/sequoia/modules/';
+  file.clumps.map(function (clump, index) {
+    var name = path.join(basepath, file.name.replace('/', '__'));
+    var contents = clump.map(R.prop('text')).join('\n\n---\n\n');
+    return fs.writeFileAsync(name, contents);
+  });
+}
+
+function dropClumpsSmallerThan(len) {
+  return function (file) {
+    file.clumps = file.clumps.filter(function (clump) {
+      return clump.length > len;
+    });
+    return file;
+  };
+}
+function clumpSlides(files) {
+  return files.map(function (file) {
+    var lastSlideIndex = -2;
+    var clumpIndex = -1;
+    file.clumps = file.slides.reduce(function (clumps, slide) {
+      if (slide.index === lastSlideIndex + 1) {
+        //it's the next in the sequence
+        clumps[clumpIndex].push(slide);
+      } else {
+        clumps[++clumpIndex] = [slide];
+      }
+      lastSlideIndex = slide.index;
+      return clumps;
+    }, []);
+    return file;
+  });
+}
+/**
+ * groups slides into file objects: {name:String, slides:[text, index]}
+ * also sorts slides by index
+ */
 function groupSlides(slides) {
-  //Should this just be a different aggregateSlides?
-  //NO because aggregate slides identifies duplicates then I can remove singletons
   return slides.reduce(groupByFile, []).map(function sortSlidesByIndex(file) {
     file.slides.sort(function (a, b) {
       return a.index - b.index;
