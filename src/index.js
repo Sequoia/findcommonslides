@@ -5,51 +5,78 @@ const Promise = require('bluebird');
 const fs = Promise.promisifyAll(require('fs'));
 
 const l = console.log.bind(console);
+const e = console.error.bind(console);
 
 const numFilenames = R.compose(R.prop('length'), R.prop('filenames'));
 const sortByFilenameCount = R.compose(R.reverse, R.sortBy(numFilenames));
 
-//a:slides [{s:text,a:filenames}]
-const slides = [];
-
 const base = '/Users/sequoia/strongloop/training.strongloop.com/public/presentations/';
 const options = {
   match: /\.md$/,
-  excludeDir: [/modules/, /landing-pages/]
+  excludeDir: ['modules', 'landing-pages']
 };
-const files = getFiles(base, options);
 
-files
+getFiles(base, options)
   .map(file => R.zipObj(['name', 'contents'], [path.relative(base, file[0]), file[1]]))
   .map(splitSlides)
   .reduce(aggregateSlides, [])
-  .filter(slide => slide.filenames.length > 4)
-  .then(sortByFilenameCount)
-  .then(slides => fs.writeFileAsync('/Users/sequoia/slides.json', JSON.stringify(slides), 'utf8'));
-  //.then(l);
+  .filter(slide => slide.filenames.length > 3)
+  //.then(sortByFilenameCount) //don't need to sort yet if I'm gonna group
+  //.map(R.prop('filenames'))
+  .then(groupSlides)
+  .map(R.prop('slides'))
+  //.then(slides => fs.writeFileAsync('/Users/sequoia/slides.json', JSON.stringify(slides), 'utf8'))
+  .then(l)
+  .catch(e);
 
-//sort slides by slide.filename.length
-//output list of top slides and filenames
-  //-> into json file
-function sortByFileCount(slides){
+  //OPTION 1: build groups by deck: compile contiguous lists of slides per deck
+  //OPTION 2: foreach slide, check index in each deck & compare to next slide
+  //          in each deck, if they continue matching, build these into lists
+  //          ^ This option seems very complex and prone to error
+function groupSlides(slides){
+  //Should this just be a different aggregateSlides?
+  //NO because aggregate slides identifies duplicates then I can remove singletons
+  return slides.reduce(groupByFile, [])
+    .map(function sortSlidesByIndex(file){
+      file.slides.sort((a, b) => a.index - b.index);
+      return file;
+    });
 
+  function groupByFile(res, slide){
+    //in <= [{text:s, filenames:a},...]
+    //out=> {name:s, slides:a}
+    return slide.filenames.reduce(function(grouped, file){
+      let idx = R.findIndex(R.propEq('name', file.name))(grouped);
+        if(idx === -1){
+          grouped.push({name: file.name, slides: []});
+          idx = grouped.length - 1;
+        }
+        grouped[idx].slides.push({text: slide.text, index: file.index});
+        return grouped;
+      }, res);
+  }
 }
+
 function aggregateSlides(slides, file){
   file.slides.map(function(slide){
     R.ifElse(
       R.lte(0),
       //if exists, add filename
-      index => slides[index].filenames.push(file.name),
+      index => slides[index].filenames.push( {name: file.name, index: slide.index} ),
       //else, create new entry & add filename
-      index => slides.push({text : slide, filenames : [ file.name ]})
-    )(R.findIndex(R.propEq('text', slide))(slides)); //search for slide in slides list
+      index => slides.push({text : slide.text, filenames : [ {name: file.name, index: slide.index} ]})
+    )(R.findIndex(R.propEq('text', slide.text))(slides)); //search for slide in slides list
   });
   return slides;
 }
 function splitSlides(file){
   file.slides = file.contents
     .split('---') //split up into slides
-    .map(text => text.replace(/(\r|\n)+/g,'')); //strip newlines @TODO fix this
+    .map(function(text, index){
+      text = text.replace(/(\r|\n)+/g,''); //strip newlines @TODO fix this
+      return { text , index };
+    })
+    .filter(R.compose(R.not,R.whereEq({text: '# fin'}))); //remove "fin" slides
   return file;
 }
 function getFiles(root, options){
