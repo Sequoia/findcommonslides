@@ -24,20 +24,16 @@ getFiles(base, options).map(function (file) {
   return slide.filenames.length > 3;
 })
 //.then(sortByFilenameCount) //don't need to sort yet if I'm gonna group
-//.map(R.prop('filenames'))
 .then(groupSlides).then(clumpSlides).map(dropClumpsSmallerThan(2)).filter(function (file) {
   return file.clumps.length > 0;
 }) //drop files with no clumps
 //.map(R.prop('clumps')) .then(slides => slides.slice(0,3)) .map(l) //examine some slides
-.all(writeModuleFiles)
-//.then(slides => fs.writeFileAsync('/Users/sequoia/slides.json', JSON.stringify(slides), 'utf8'))
-//.then(l)
-.catch(e);
+.map(writeModuleFiles).catch(e);
 
 function writeModuleFiles(file) {
   var basepath = '/Users/sequoia/modules/';
   file.clumps.map(function (clump, index) {
-    var name = path.join(basepath, file.name.replace('/', '__'));
+    var name = path.join(basepath, file.name.replace('/', '__') + '.' + index);
     var contents = clump.map(R.prop('text')).join('\n\n---\n\n');
     return fs.writeFileAsync(name, contents);
   });
